@@ -53,6 +53,9 @@ td:first-child,th:first-child{text-align:left}
 <p class="result">Black-Scholes: <b id="bs">-</b></p>
 <p class="result">Binomial (100 steps): <b id="bin">-</b></p>
 
+<h2>Calculation steps (Black-Scholes)</h2>
+<table id="steps"><tr><th>Step</th><th>Formula</th><th>Value</th></tr></table>
+
 <h2>Greeks</h2>
 <table>
 <tr><th>Greek</th><th>Value</th><th>Meaning</th></tr>
@@ -90,6 +93,14 @@ function bs(S,K,T,r,sig,opt){
   var d2=d1-sig*Math.sqrt(T);
   if(opt==="call") return S*N(d1)-K*Math.exp(-r*T)*N(d2);
   return K*Math.exp(-r*T)*N(-d2)-S*N(-d1);
+}
+// pure: every intermediate BS step, for the on-page breakdown (used by node test)
+function bsSteps(S,K,T,r,sig,opt){
+  var d1=(Math.log(S/K)+(r+0.5*sig*sig)*T)/(sig*Math.sqrt(T));
+  var d2=d1-sig*Math.sqrt(T);
+  var nd1=N(d1), nd2=N(d2), disc=Math.exp(-r*T);
+  var price=opt==="call"?S*nd1-K*disc*nd2:K*disc*N(-d2)-S*N(-d1);
+  return {d1:d1,d2:d2,nd1:nd1,nd2:nd2,disc:disc,price:price};
 }
 function greeks(S,K,T,r,sig){
   var d1=(Math.log(S/K)+(r+0.5*sig*sig)*T)/(sig*Math.sqrt(T));
@@ -189,6 +200,16 @@ function price(){
   if(err){ status("Error: "+err,true); return false; }
   document.getElementById("bs").textContent=bs(x.S,x.K,x.T,x.r,x.v,x.o).toFixed(2);
   document.getElementById("bin").textContent=binomial(x.S,x.K,x.T,x.r,x.v,x.o).toFixed(2);
+  var st=bsSteps(x.S,x.K,x.T,x.r,x.v,x.o);
+  var leg=x.o==="call"
+    ? "S x N(d1) - K x e(-rT) x N(d2)"
+    : "K x e(-rT) x N(-d2) - S x N(-d1)";
+  document.getElementById("steps").innerHTML='<tr><th>Step</th><th>Formula</th><th>Value</th></tr>'+
+    '<tr><td>1. d1</td><td>(ln(S/K) + (r + vol^2/2) x T) / (vol x sqrt(T))</td><td>'+st.d1.toFixed(4)+'</td></tr>'+
+    '<tr><td>2. d2</td><td>d1 - vol x sqrt(T)</td><td>'+st.d2.toFixed(4)+'</td></tr>'+
+    '<tr><td>3. N(d1), N(d2)</td><td>standard normal CDF</td><td>'+st.nd1.toFixed(4)+', '+st.nd2.toFixed(4)+'</td></tr>'+
+    '<tr><td>4. discount</td><td>e^(-rT)</td><td>'+st.disc.toFixed(4)+'</td></tr>'+
+    '<tr><td>5. price</td><td>'+leg+'</td><td>'+st.price.toFixed(2)+'</td></tr>';
   var g=greeks(x.S,x.K,x.T,x.r,x.v);
   document.getElementById("gDelta").textContent=g.delta.toFixed(4);
   document.getElementById("gGamma").textContent=g.gamma.toFixed(6);
