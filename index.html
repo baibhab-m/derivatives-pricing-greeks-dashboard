@@ -1,0 +1,172 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>NIFTY Option Pricer</title>
+<style>
+body{font-family:-apple-system,"Segoe UI",Roboto,Arial,sans-serif;max-width:760px;margin:32px auto;padding:0 16px;color:#1a1a1a;line-height:1.5}
+h1{font-size:22px;margin-bottom:4px}
+h2{font-size:16px;margin-top:28px;border-bottom:1px solid #ddd;padding-bottom:4px}
+.sub{font-size:13px;color:#555;margin-top:0}
+label{display:block;font-size:13px;margin:8px 0 2px;color:#444}
+input,select{font:inherit;padding:5px 8px;border:1px solid #bbb;width:200px}
+.row{display:flex;gap:24px;flex-wrap:wrap}
+button{font:inherit;padding:6px 14px;background:#1a56db;color:#fff;border:none;cursor:pointer;margin-top:14px}
+button:hover{background:#1443ad}
+table{border-collapse:collapse;margin-top:12px;font-size:14px}
+th,td{border:1px solid #ccc;padding:4px 10px;text-align:right}
+th{background:#f2f2f2;font-weight:600}
+td:first-child,th:first-child{text-align:left}
+.result{font-size:15px;margin:6px 0}
+.result b{font-size:18px}
+.note{font-size:13px;color:#555}
+</style>
+</head>
+<body>
+<h1>NIFTY Option Pricer</h1>
+<p class="sub">Black-Scholes + binomial tree, Greeks, and a delta-hedge backtest. Illustrative numbers only, not market data.</p>
+
+<h2>Inputs</h2>
+<div class="row">
+<div>
+<label>Spot price</label><input id="spot" type="number" value="22500" step="any">
+<label>Strike price</label><input id="strike" type="number" value="22500" step="any">
+<label>Time to expiry (years)</label><input id="t" type="number" value="0.25" step="any">
+</div>
+<div>
+<label>Risk-free rate (%)</label><input id="r" type="number" value="7" step="any">
+<label>Volatility (%)</label><input id="vol" type="number" value="18" step="any">
+<label>Option type</label><select id="otype"><option value="call">Call</option><option value="put">Put</option></select>
+</div>
+</div>
+<button onclick="price()">Calculate</button>
+
+<h2>Price</h2>
+<p class="result">Black-Scholes: <b id="bs">-</b></p>
+<p class="result">Binomial (100 steps): <b id="bin">-</b></p>
+
+<h2>Greeks</h2>
+<table>
+<tr><th>Greek</th><th>Value</th><th>Meaning</th></tr>
+<tr><td>Delta</td><td id="gDelta">-</td><td>price change per 1pt move in spot</td></tr>
+<tr><td>Gamma</td><td id="gGamma">-</td><td>how fast delta changes</td></tr>
+<tr><td>Vega</td><td id="gVega">-</td><td>price change per 1pt move in vol</td></tr>
+<tr><td>Theta</td><td id="gTheta">-</td><td>value lost per year of time passing</td></tr>
+</table>
+
+<h2>Delta heatmap (delta by strike and vol)</h2>
+<table id="heat"><tr><th>strike \ vol</th></tr></table>
+
+<h2>Delta-hedge backtest</h2>
+<p class="note">Simulates a random price path, holds delta at each step, compares hedge P&amp;L to the option premium.</p>
+<button onclick="backtest()">Run backtest</button>
+<p class="result" id="bt">-</p>
+
+<script>
+// ---------- math helpers ----------
+function erf(x){
+  // Abramowitz-Stegun approximation, good to ~1e-7
+  var s=x<0?-1:1, ax=Math.abs(x);
+  var t=1/(1+0.3275911*ax);
+  var y=1-((((1.061405429*t-1.453152027)*t+1.421413741)*t-0.284496736)*t+0.254829592)*t*Math.exp(-ax*ax);
+  return s*y;
+}
+function N(x){ return 0.5*(1+erf(x/Math.SQRT2)); }
+
+function bs(S,K,T,r,sig,opt){
+  var d1=(Math.log(S/K)+(r+0.5*sig*sig)*T)/(sig*Math.sqrt(T));
+  var d2=d1-sig*Math.sqrt(T);
+  if(opt==="call") return S*N(d1)-K*Math.exp(-r*T)*N(d2);
+  return K*Math.exp(-r*T)*N(-d2)-S*N(-d1);
+}
+function greeks(S,K,T,r,sig){
+  var d1=(Math.log(S/K)+(r+0.5*sig*sig)*T)/(sig*Math.sqrt(T));
+  var d2=d1-sig*Math.sqrt(T);
+  var np=Math.exp(-0.5*d1*d1)/Math.sqrt(2*Math.PI);
+  return {
+    delta:N(d1),
+    gamma:np/(S*sig*Math.sqrt(T)),
+    vega:S*np*Math.sqrt(T),
+    theta:-(S*np*sig)/(2*Math.sqrt(T))-r*K*Math.exp(-r*T)*N(d2)
+  };
+}
+function binomial(S,K,T,r,sig,steps,opt){
+  var dt=T/steps, u=Math.exp(sig*Math.sqrt(dt)), d=1/u;
+  var p=(Math.exp(r*dt)-d)/(u-d), disc=Math.exp(-r*dt);
+  var v=[];
+  for(var i=0;i<=steps;i++){
+    var px=S*Math.pow(u,steps-i)*Math.pow(d,i);
+    v.push(opt==="call"?Math.max(px-K,0):Math.max(K-px,0));
+  }
+  for(var n=steps;n>0;n--){
+    var w=[];
+    for(var j=0;j<n;j++) w.push(disc*(p*v[j]+(1-p)*v[j+1]));
+    v=w;
+  }
+  return v[0];
+}
+// seeded rng so the backtest is repeatable
+function mulberry32(a){
+  return function(){
+    a|=0; a=a+0x6D2B79F5|0;
+    var t=Math.imul(a^a>>>15,1|a);
+    t=t+Math.imul(t^t>>>7,61|t)^t;
+    return ((t^t>>>14)>>>0)/4294967296;
+  };
+}
+function backtestPnl(S0,K,T,r,sig,seed){
+  var rnd=mulberry32(seed), steps=60, dt=T/steps, path=[S0];
+  for(var i=0;i<steps;i++){
+    // Box-Muller gaussian
+    var u1=rnd()||1e-9, u2=rnd();
+    var z=Math.sqrt(-2*Math.log(u1))*Math.cos(2*Math.PI*u2);
+    path.push(path[path.length-1]*Math.exp((0.08-0.5*sig*sig)*dt+sig*Math.sqrt(dt)*z));
+  }
+  var pnl=0;
+  for(var k=0;k<steps;k++){
+    var g=greeks(path[k],K,T-k*dt,r,sig);
+    pnl+=g.delta*(path[k+1]-path[k]);
+  }
+  return pnl;
+}
+
+// ---------- page wiring ----------
+function inputs(){
+  return {
+    S:parseFloat(document.getElementById("spot").value),
+    K:parseFloat(document.getElementById("strike").value),
+    T:parseFloat(document.getElementById("t").value),
+    r:parseFloat(document.getElementById("r").value)/100,
+    v:parseFloat(document.getElementById("vol").value)/100,
+    o:document.getElementById("otype").value
+  };
+}
+function price(){
+  var x=inputs();
+  document.getElementById("bs").textContent=bs(x.S,x.K,x.T,x.r,x.v,x.o).toFixed(2);
+  document.getElementById("bin").textContent=binomial(x.S,x.K,x.T,x.r,x.v,x.o).toFixed(2);
+  var g=greeks(x.S,x.K,x.T,x.r,x.v);
+  document.getElementById("gDelta").textContent=g.delta.toFixed(4);
+  document.getElementById("gGamma").textContent=g.gamma.toFixed(6);
+  document.getElementById("gVega").textContent=g.vega.toFixed(2);
+  document.getElementById("gTheta").textContent=g.theta.toFixed(2);
+  // heatmap: 5 strikes around spot, fixed vol columns
+  var vols=[0.12,0.15,0.18,0.21,0.25];
+  var strikes=[-500,-250,0,250,500].map(function(d){return Math.round(x.S+d);});
+  var h='<tr><th>strike \\ vol</th>'+vols.map(function(v){return '<th>'+Math.round(v*100)+'%</th>';}).join('')+'</tr>';
+  strikes.forEach(function(K){
+    h+='<tr><td>'+K+'</td>'+vols.map(function(v){return '<td>'+greeks(x.S,K,x.T,x.r,v).delta.toFixed(2)+'</td>';}).join('')+'</tr>';
+  });
+  document.getElementById("heat").innerHTML=h;
+}
+function backtest(){
+  var x=inputs();
+  var prem=bs(x.S,x.K,x.T,x.r,x.v,"call");
+  var pnl=backtestPnl(x.S,x.K,x.T,x.r,x.v,42);
+  document.getElementById("bt").textContent="Hedge P&L: "+pnl.toFixed(2)+"  vs  call premium: "+prem.toFixed(2);
+}
+if(typeof document!=="undefined") price();
+</script>
+</body>
+</html>

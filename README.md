@@ -16,6 +16,9 @@ python main.py
 
 No external dependencies beyond Python stdlib (`math`, `random`).
 
+## Web demo
+`index.html` is the same pricer as a single page in the browser. Just open it - no server needed.
+
 ## Inputs
 All hard-coded at the top of `main.py`:
 - NIFTY: spot=22500, strike=22500, T=0.25y, r=7%, vol=18%
