@@ -102,15 +102,17 @@ function bsSteps(S,K,T,r,sig,opt){
   var price=opt==="call"?S*nd1-K*disc*nd2:K*disc*N(-d2)-S*N(-d1);
   return {d1:d1,d2:d2,nd1:nd1,nd2:nd2,disc:disc,price:price};
 }
-function greeks(S,K,T,r,sig){
+function greeks(S,K,T,r,sig,opt){
   var d1=(Math.log(S/K)+(r+0.5*sig*sig)*T)/(sig*Math.sqrt(T));
   var d2=d1-sig*Math.sqrt(T);
   var np=Math.exp(-0.5*d1*d1)/Math.sqrt(2*Math.PI);
+  var isPut=(opt==="put");
   return {
-    delta:N(d1),
+    delta:isPut?N(d1)-1:N(d1),
     gamma:np/(S*sig*Math.sqrt(T)),
     vega:S*np*Math.sqrt(T),
-    theta:-(S*np*sig)/(2*Math.sqrt(T))-r*K*Math.exp(-r*T)*N(d2)
+    theta:isPut?-(S*np*sig)/(2*Math.sqrt(T))+r*K*Math.exp(-r*T)*N(-d2)
+               :-(S*np*sig)/(2*Math.sqrt(T))-r*K*Math.exp(-r*T)*N(d2)
   };
 }
 function binomial(S,K,T,r,sig,steps,opt){
@@ -146,7 +148,7 @@ function onePath(S0,K,T,r,sig,seed){
   }
   var pnl=0;
   for(var k=0;k<steps;k++){
-    var g=greeks(path[k],K,T-k*dt,r,sig);
+    var g=greeks(path[k],K,T-k*dt,r,sig,"call");
     pnl+=g.delta*(path[k+1]-path[k]);
   }
   return pnl;
@@ -199,7 +201,7 @@ function price(){
   markBad();
   if(err){ status("Error: "+err,true); return false; }
   document.getElementById("bs").textContent=bs(x.S,x.K,x.T,x.r,x.v,x.o).toFixed(2);
-  document.getElementById("bin").textContent=binomial(x.S,x.K,x.T,x.r,x.v,x.o).toFixed(2);
+  document.getElementById("bin").textContent=binomial(x.S,x.K,x.T,x.r,x.v,100,x.o).toFixed(2);
   var st=bsSteps(x.S,x.K,x.T,x.r,x.v,x.o);
   var leg=x.o==="call"
     ? "S x N(d1) - K x e(-rT) x N(d2)"
@@ -210,7 +212,7 @@ function price(){
     '<tr><td>3. N(d1), N(d2)</td><td>standard normal CDF</td><td>'+st.nd1.toFixed(4)+', '+st.nd2.toFixed(4)+'</td></tr>'+
     '<tr><td>4. discount</td><td>e^(-rT)</td><td>'+st.disc.toFixed(4)+'</td></tr>'+
     '<tr><td>5. price</td><td>'+leg+'</td><td>'+st.price.toFixed(2)+'</td></tr>';
-  var g=greeks(x.S,x.K,x.T,x.r,x.v);
+  var g=greeks(x.S,x.K,x.T,x.r,x.v,x.o);
   document.getElementById("gDelta").textContent=g.delta.toFixed(4);
   document.getElementById("gGamma").textContent=g.gamma.toFixed(6);
   document.getElementById("gVega").textContent=g.vega.toFixed(2);
@@ -219,7 +221,7 @@ function price(){
   var strikes=[-500,-250,0,250,500].map(function(d){return Math.round(x.S+d);});
   var h='<tr><th>strike \\ vol</th>'+vols.map(function(v){return '<th>'+Math.round(v*100)+'%</th>';}).join('')+'</tr>';
   strikes.forEach(function(K){
-    h+='<tr><td>'+K+'</td>'+vols.map(function(v){return '<td>'+greeks(x.S,K,x.T,x.r,v).delta.toFixed(2)+'</td>';}).join('')+'</tr>';
+    h+='<tr><td>'+K+'</td>'+vols.map(function(v){return '<td>'+greeks(x.S,K,x.T,x.r,v,x.o).delta.toFixed(2)+'</td>';}).join('')+'</tr>';
   });
   document.getElementById("heat").innerHTML=h;
   var ms=(typeof performance!=="undefined")?(" in "+Math.max(1,Math.round(performance.now()-t0))+" ms"):"";
