@@ -27,6 +27,11 @@ td:first-child,th:first-child{text-align:left}
 #status.err{color:#b00020}
 .bar{height:8px;background:#eee;width:260px;margin-top:8px;display:none}
 .bar>i{display:block;height:100%;background:#1a56db;width:0}
+.math{font-family:Georgia,"Times New Roman",serif;font-size:15px}
+.frac{display:inline-flex;flex-direction:column;vertical-align:middle;text-align:center;margin:0 6px}
+.frac>span:first-child{border-bottom:1px solid #333;padding:0 8px 1px}
+.frac>span:last-child{padding:1px 8px 0}
+.sqrt{border-top:1px solid #333;padding:0 2px 0 1px}
 </style>
 </head>
 <body>
@@ -59,10 +64,10 @@ td:first-child,th:first-child{text-align:left}
 <h2>Greeks</h2>
 <table>
 <tr><th>Greek</th><th>Value</th><th>Meaning</th></tr>
-<tr><td>Delta</td><td id="gDelta">-</td><td>price change per 1pt move in spot</td></tr>
-<tr><td>Gamma</td><td id="gGamma">-</td><td>how fast delta changes</td></tr>
-<tr><td>Vega</td><td id="gVega">-</td><td>price change per 1pt move in vol</td></tr>
-<tr><td>Theta</td><td id="gTheta">-</td><td>value lost per year of time passing</td></tr>
+<tr><td>&Delta; Delta</td><td id="gDelta">-</td><td>price change per 1pt move in spot</td></tr>
+<tr><td>&Gamma; Gamma</td><td id="gGamma">-</td><td>how fast delta changes</td></tr>
+<tr><td>&nu; Vega</td><td id="gVega">-</td><td>price change per 1pt move in vol</td></tr>
+<tr><td>&theta; Theta</td><td id="gTheta">-</td><td>value lost per year of time passing</td></tr>
 </table>
 
 <h2>Delta heatmap (delta by strike and vol)</h2>
@@ -93,6 +98,25 @@ function bs(S,K,T,r,sig,opt){
   var d2=d1-sig*Math.sqrt(T);
   if(opt==="call") return S*N(d1)-K*Math.exp(-r*T)*N(d2);
   return K*Math.exp(-r*T)*N(-d2)-S*N(-d1);
+}
+// pure: every intermediate BS step, for the on-page breakdown (used by node test)
+// tiny math typesetter: stacked fractions, radicals, sub/superscripts (no dependencies)
+function frac(n,d){return '<span class="frac"><span>'+n+'</span><span>'+d+'</span></span>';}
+function sq(x){return '&radic;<span class="sqrt">'+x+'</span>';}
+function bsStepsHTML(x,st){
+  var d1f='d<sub>1</sub> = '+frac('ln(S/K) + (r + &sigma;<sup>2</sup>/2)T', '&sigma;'+sq('T'));
+  var d2f='d<sub>2</sub> = d<sub>1</sub> &minus; &sigma;&middot;'+sq('T');
+  var nf='N(d<sub>1</sub>), N(d<sub>2</sub>) = &Phi;(d), standard normal CDF';
+  var df='e<sup>&minus;rT</sup>, discount factor';
+  var leg=x.o==="call"
+    ? 'C = S&middot;N(d<sub>1</sub>) &minus; K&middot;e<sup>&minus;rT</sup>&middot;N(d<sub>2</sub>)'
+    : 'P = K&middot;e<sup>&minus;rT</sup>&middot;N(&minus;d<sub>2</sub>) &minus; S&middot;N(&minus;d<sub>1</sub>)';
+  return '<tr><th>Step</th><th>Formula</th><th>Value</th></tr>'+
+    '<tr><td>1</td><td class="math">'+d1f+'</td><td>'+st.d1.toFixed(4)+'</td></tr>'+
+    '<tr><td>2</td><td class="math">'+d2f+'</td><td>'+st.d2.toFixed(4)+'</td></tr>'+
+    '<tr><td>3</td><td class="math">'+nf+'</td><td>'+st.nd1.toFixed(4)+', '+st.nd2.toFixed(4)+'</td></tr>'+
+    '<tr><td>4</td><td class="math">'+df+'</td><td>'+st.disc.toFixed(4)+'</td></tr>'+
+    '<tr><td>5</td><td class="math">'+leg+'</td><td>'+st.price.toFixed(2)+'</td></tr>';
 }
 // pure: every intermediate BS step, for the on-page breakdown (used by node test)
 function bsSteps(S,K,T,r,sig,opt){
@@ -203,15 +227,7 @@ function price(){
   document.getElementById("bs").textContent=bs(x.S,x.K,x.T,x.r,x.v,x.o).toFixed(2);
   document.getElementById("bin").textContent=binomial(x.S,x.K,x.T,x.r,x.v,100,x.o).toFixed(2);
   var st=bsSteps(x.S,x.K,x.T,x.r,x.v,x.o);
-  var leg=x.o==="call"
-    ? "S x N(d1) - K x e(-rT) x N(d2)"
-    : "K x e(-rT) x N(-d2) - S x N(-d1)";
-  document.getElementById("steps").innerHTML='<tr><th>Step</th><th>Formula</th><th>Value</th></tr>'+
-    '<tr><td>1. d1</td><td>(ln(S/K) + (r + vol^2/2) x T) / (vol x sqrt(T))</td><td>'+st.d1.toFixed(4)+'</td></tr>'+
-    '<tr><td>2. d2</td><td>d1 - vol x sqrt(T)</td><td>'+st.d2.toFixed(4)+'</td></tr>'+
-    '<tr><td>3. N(d1), N(d2)</td><td>standard normal CDF</td><td>'+st.nd1.toFixed(4)+', '+st.nd2.toFixed(4)+'</td></tr>'+
-    '<tr><td>4. discount</td><td>e^(-rT)</td><td>'+st.disc.toFixed(4)+'</td></tr>'+
-    '<tr><td>5. price</td><td>'+leg+'</td><td>'+st.price.toFixed(2)+'</td></tr>';
+  document.getElementById("steps").innerHTML=bsStepsHTML(x,st);
   var g=greeks(x.S,x.K,x.T,x.r,x.v,x.o);
   document.getElementById("gDelta").textContent=g.delta.toFixed(4);
   document.getElementById("gGamma").textContent=g.gamma.toFixed(6);
