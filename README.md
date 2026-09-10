@@ -1,19 +1,25 @@
 # Derivatives Pricing and Greeks Dashboard
 
-NIFTY Options Pricer and Delta-Hedging Backtester — Python, VBA
+Black-Scholes and binomial pricer for NIFTY index options with Greeks heatmaps and delta-hedge backtests across equity (NIFTY) and FX (USDINR) underlyings.
 
-Built Black-Scholes binomial pricer for equity index options with Greeks analytics and delta-hedge backtesting in Python & VBA.
+## What it does
+- Prices European call/put via **Black-Scholes** and **binomial tree (CRR)**
+- Computes **Delta, Gamma, Vega, Theta** Greeks
+- Runs a **delta-hedge backtest** on a synthetic price path for both NIFTY and USDINR
+- Prints **Greeks heatmaps** (price vs strike vs vol)
 
-## Features
-- src/pricer.py — Black-Scholes price + Greeks (delta, gamma, vega, theta) with heatmap example
-- src/backtest.py — delta-hedge backtest across equity (NIFTY) & FX underlyings (synthetic path)
-- src/greeks.py — to be added for heatmap generation
-- dashboard.xlsm — VBA dashboard placeholder (Greeks heatmaps, backtest chart) — to be added
-- equirements.txt — 
-umpy, pandas, matplotlib`n
 ## Run
-``npython src/pricer.py
-python src/backtest.py
-``n
-*Synthetic vol/rate, illustrative — extend with live NIFTY/FX data and VBA dashboard.*
+```bash
+pip install -r requirements.txt
+python main.py
+```
 
+No external dependencies beyond Python stdlib (`math`, `random`).
+
+## Inputs
+All hard-coded at the top of `main.py`:
+- NIFTY: spot=22500, strike=22500, T=0.25y, r=7%, vol=18%
+- USDINR: spot=83.5, strike=84.0, T=0.10y, r=6%, vol=12%
+
+## Note
+Synthetic illustrative inputs only. Not connected to live market data.
