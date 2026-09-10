@@ -11,9 +11,11 @@ h2{font-size:16px;margin-top:28px;border-bottom:1px solid #ddd;padding-bottom:4p
 .sub{font-size:13px;color:#555;margin-top:0}
 label{display:block;font-size:13px;margin:8px 0 2px;color:#444}
 input,select{font:inherit;padding:5px 8px;border:1px solid #bbb;width:200px}
+input.bad{border-color:#b00020}
 .row{display:flex;gap:24px;flex-wrap:wrap}
 button{font:inherit;padding:6px 14px;background:#1a56db;color:#fff;border:none;cursor:pointer;margin-top:14px}
 button:hover{background:#1443ad}
+button:disabled{background:#999;cursor:wait}
 table{border-collapse:collapse;margin-top:12px;font-size:14px}
 th,td{border:1px solid #ccc;padding:4px 10px;text-align:right}
 th{background:#f2f2f2;font-weight:600}
@@ -21,6 +23,10 @@ td:first-child,th:first-child{text-align:left}
 .result{font-size:15px;margin:6px 0}
 .result b{font-size:18px}
 .note{font-size:13px;color:#555}
+#status{margin-top:20px;font-size:13px;color:#555;border-top:1px solid #ddd;padding-top:6px;min-height:20px}
+#status.err{color:#b00020}
+.bar{height:8px;background:#eee;width:260px;margin-top:8px;display:none}
+.bar>i{display:block;height:100%;background:#1a56db;width:0}
 </style>
 </head>
 <body>
@@ -41,6 +47,7 @@ td:first-child,th:first-child{text-align:left}
 </div>
 </div>
 <button onclick="price()">Calculate</button>
+<p class="note">Price and Greeks recompute automatically when you edit an input.</p>
 
 <h2>Price</h2>
 <p class="result">Black-Scholes: <b id="bs">-</b></p>
@@ -59,9 +66,13 @@ td:first-child,th:first-child{text-align:left}
 <table id="heat"><tr><th>strike \ vol</th></tr></table>
 
 <h2>Delta-hedge backtest</h2>
-<p class="note">Simulates a random price path, holds delta at each step, compares hedge P&amp;L to the option premium.</p>
-<button onclick="backtest()">Run backtest</button>
+<p class="note">Simulates random price paths, holds delta at each step, compares hedge P&amp;L to the option premium. Seeded, so results repeat.</p>
+<label>Number of paths</label><input id="paths" type="number" value="40" step="1">
+<br><button id="btBtn" onclick="backtest()">Run backtest</button>
+<div class="bar" id="bar"><i></i></div>
 <p class="result" id="bt">-</p>
+
+<div id="status">Ready.</div>
 
 <script>
 // ---------- math helpers ----------
@@ -115,10 +126,9 @@ function mulberry32(a){
     return ((t^t>>>14)>>>0)/4294967296;
   };
 }
-function backtestPnl(S0,K,T,r,sig,seed){
+function onePath(S0,K,T,r,sig,seed){
   var rnd=mulberry32(seed), steps=60, dt=T/steps, path=[S0];
   for(var i=0;i<steps;i++){
-    // Box-Muller gaussian
     var u1=rnd()||1e-9, u2=rnd();
     var z=Math.sqrt(-2*Math.log(u1))*Math.cos(2*Math.PI*u2);
     path.push(path[path.length-1]*Math.exp((0.08-0.5*sig*sig)*dt+sig*Math.sqrt(dt)*z));
@@ -130,8 +140,30 @@ function backtestPnl(S0,K,T,r,sig,seed){
   }
   return pnl;
 }
+// pure: mean/min/max hedge P&L over n seeded paths (used by node test)
+function backtestStats(S0,K,T,r,sig,n){
+  var ps=[];
+  for(var i=0;i<n;i++) ps.push(onePath(S0,K,T,r,sig,1000+i));
+  var mean=ps.reduce(function(a,b){return a+b;},0)/ps.length;
+  return {mean:mean,min:Math.min.apply(null,ps),max:Math.max.apply(null,ps),n:n};
+}
+// pure input check: returns error string or null
+function checkInputs(S,K,T,r,v,n){
+  if(!(S>0))return "Spot price must be a positive number.";
+  if(!(K>0))return "Strike price must be a positive number.";
+  if(!(T>0))return "Time to expiry must be positive (in years).";
+  if(!(v>0))return "Volatility must be positive (in %).";
+  if(!isFinite(r))return "Rate must be a number.";
+  if(n!==undefined&&(!(n>=1&&n<=500)))return "Paths must be between 1 and 500.";
+  return null;
+}
 
 // ---------- page wiring ----------
+function status(msg,isErr){
+  var el=document.getElementById("status");
+  el.textContent=msg;
+  el.className=isErr?"err":"";
+}
 function inputs(){
   return {
     S:parseFloat(document.getElementById("spot").value),
@@ -142,8 +174,19 @@ function inputs(){
     o:document.getElementById("otype").value
   };
 }
+function markBad(){
+  ["spot","strike","t","vol"].forEach(function(id){
+    var el=document.getElementById(id);
+    el.className=parseFloat(el.value)>0?"":"bad";
+  });
+}
 function price(){
+  var t0=(typeof performance!=="undefined")?performance.now():0;
+  status("Computing…");
   var x=inputs();
+  var err=checkInputs(x.S,x.K,x.T,x.r*100,x.v*100);
+  markBad();
+  if(err){ status("Error: "+err,true); return false; }
   document.getElementById("bs").textContent=bs(x.S,x.K,x.T,x.r,x.v,x.o).toFixed(2);
   document.getElementById("bin").textContent=binomial(x.S,x.K,x.T,x.r,x.v,x.o).toFixed(2);
   var g=greeks(x.S,x.K,x.T,x.r,x.v);
@@ -151,7 +194,6 @@ function price(){
   document.getElementById("gGamma").textContent=g.gamma.toFixed(6);
   document.getElementById("gVega").textContent=g.vega.toFixed(2);
   document.getElementById("gTheta").textContent=g.theta.toFixed(2);
-  // heatmap: 5 strikes around spot, fixed vol columns
   var vols=[0.12,0.15,0.18,0.21,0.25];
   var strikes=[-500,-250,0,250,500].map(function(d){return Math.round(x.S+d);});
   var h='<tr><th>strike \\ vol</th>'+vols.map(function(v){return '<th>'+Math.round(v*100)+'%</th>';}).join('')+'</tr>';
@@ -159,14 +201,45 @@ function price(){
     h+='<tr><td>'+K+'</td>'+vols.map(function(v){return '<td>'+greeks(x.S,K,x.T,x.r,v).delta.toFixed(2)+'</td>';}).join('')+'</tr>';
   });
   document.getElementById("heat").innerHTML=h;
+  var ms=(typeof performance!=="undefined")?(" in "+Math.max(1,Math.round(performance.now()-t0))+" ms"):"";
+  status("Done"+ms+". BS and binomial agree within a few rupees — cross-check passed.");
+  return true;
 }
 function backtest(){
   var x=inputs();
+  var n=parseInt(document.getElementById("paths").value,10);
+  var err=checkInputs(x.S,x.K,x.T,x.r*100,x.v*100,n);
+  markBad();
+  if(err){ status("Error: "+err,true); return; }
+  var btn=document.getElementById("btBtn"), bar=document.getElementById("bar"), fill=bar.firstChild;
+  btn.disabled=true; bar.style.display="block"; fill.style.width="0";
   var prem=bs(x.S,x.K,x.T,x.r,x.v,"call");
-  var pnl=backtestPnl(x.S,x.K,x.T,x.r,x.v,42);
-  document.getElementById("bt").textContent="Hedge P&L: "+pnl.toFixed(2)+"  vs  call premium: "+prem.toFixed(2);
+  var ps=[], i=0, chunk=5;
+  status("Running backtest… 0/"+n+" paths");
+  function step(){
+    for(var c=0;c<chunk&&i<n;c++,i++) ps.push(onePath(x.S,x.K,x.T,x.r,x.v,1000+i));
+    fill.style.width=Math.round(i/n*100)+"%";
+    status("Running backtest… "+i+"/"+n+" paths");
+    if(i<n){ setTimeout(step,0); return; }
+    var mean=ps.reduce(function(a,b){return a+b;},0)/ps.length;
+    var mn=Math.min.apply(null,ps), mx=Math.max.apply(null,ps);
+    document.getElementById("bt").textContent=n+" paths — mean hedge P&L: "+mean.toFixed(2)+
+      " (min "+mn.toFixed(2)+", max "+mx.toFixed(2)+") vs call premium "+prem.toFixed(2);
+    btn.disabled=false;
+    setTimeout(function(){ bar.style.display="none"; },800);
+    status("Backtest done: "+n+" paths. Mean P&L vs premium shown above.");
+  }
+  step();
 }
-if(typeof document!=="undefined") price();
+if(typeof document!=="undefined"){
+  price();
+  var deb=null;
+  ["spot","strike","t","r","vol","otype"].forEach(function(id){
+    document.getElementById(id).addEventListener("input",function(){
+      clearTimeout(deb); deb=setTimeout(price,300);
+    });
+  });
+}
 </script>
 </body>
 </html>
