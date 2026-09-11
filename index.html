@@ -80,6 +80,21 @@ td:first-child,th:first-child{text-align:left}
 <div class="bar" id="bar"><i></i></div>
 <p class="result" id="bt">-</p>
 
+<h2>Assumptions &amp; method</h2>
+<p class="note">Every number above rests on these. Inputs are editable beliefs; the rest is hard-wired method:</p>
+<table>
+<tr><th>#</th><th>Assumption</th><th>Status</th></tr>
+<tr><td>1</td><td>European exercise (payoff only at expiry)</td><td>built into both pricers</td></tr>
+<tr><td>2</td><td>Constant rate and volatility</td><td>inputs above — editable, illustrative</td></tr>
+<tr><td>3</td><td>No dividends</td><td>not modeled — say so if asked</td></tr>
+<tr><td>4</td><td>Lognormal prices, no jumps</td><td>assumed by BS and by the simulation</td></tr>
+<tr><td>5</td><td>Frictionless hedging (no costs, fractional shares)</td><td>backtest simplification — disclosed</td></tr>
+<tr><td>6</td><td>Simulation drift 8%</td><td>my choice; moves demo paths only, never the price</td></tr>
+<tr><td>7</td><td>Vega per 1.0 vol (≈ ÷100 per vol point), theta per year (≈ ÷365 per day)</td><td>display convention — convert when asked</td></tr>
+<tr><td>8</td><td>Inputs are illustrative, not live market data</td><td>labeled at top of page</td></tr>
+</table>
+<p class="result" id="parity">-</p>
+
 <div id="status">Ready.</div>
 
 <script>
@@ -226,6 +241,10 @@ function price(){
   if(err){ status("Error: "+err,true); return false; }
   document.getElementById("bs").textContent=bs(x.S,x.K,x.T,x.r,x.v,x.o).toFixed(2);
   document.getElementById("bin").textContent=binomial(x.S,x.K,x.T,x.r,x.v,100,x.o).toFixed(2);
+  var cc=bs(x.S,x.K,x.T,x.r,x.v,"call"), pp=bs(x.S,x.K,x.T,x.r,x.v,"put");
+  var lhs=cc-pp, rhs=x.S-x.K*Math.exp(-x.r*x.T), pd=Math.abs(lhs-rhs);
+  document.getElementById("parity").textContent="Put-call parity check: C − P = "+lhs.toFixed(2)+
+    " vs S − K·disc = "+rhs.toFixed(2)+" — "+(pd<1?"holds (diff "+pd.toFixed(2)+")":"BROKEN (diff "+pd.toFixed(2)+")");
   var st=bsSteps(x.S,x.K,x.T,x.r,x.v,x.o);
   document.getElementById("steps").innerHTML=bsStepsHTML(x,st);
   var g=greeks(x.S,x.K,x.T,x.r,x.v,x.o);
